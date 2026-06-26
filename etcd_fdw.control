@@ -1,0 +1,5 @@
+# etcd_fdw extension
+comment = 'foreign-data wrapper for etcd v3 key/value stores'
+default_version = '1.3'
+module_pathname = '$libdir/etcd_fdw'
+relocatable = true

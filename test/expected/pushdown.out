@@ -1,0 +1,114 @@
+-- pushdown: key predicate / ORDER BY / LIMIT pushdown to etcd Range
+CREATE FOREIGN TABLE p_kv (key text COLLATE "C", value text)
+  SERVER etcd OPTIONS (prefix '/test/push/', strip_prefix 'true');
+DELETE FROM p_kv;
+INSERT INTO p_kv (key, value)
+  SELECT chr(96 + g), 'v' || g FROM generate_series(1, 7) g;   -- a..g
+-- equality -> single-key get
+EXPLAIN (VERBOSE, COSTS OFF) SELECT key, value FROM p_kv WHERE key = 'c';
+            QUERY PLAN             
+-----------------------------------
+ Foreign Scan on public.p_kv
+   Output: key, value
+   etcd Endpoint: http://etcd:2379
+   etcd Prefix: /test/push/
+   etcd Scan: single key
+   etcd Order: ASC
+(6 rows)
+
+SELECT key, value FROM p_kv WHERE key = 'c';
+ key | value 
+-----+-------
+ c   | v3
+(1 row)
+
+-- range -> bounded Range
+EXPLAIN (VERBOSE, COSTS OFF) SELECT key FROM p_kv WHERE key >= 'c' AND key < 'f' ORDER BY key;
+            QUERY PLAN             
+-----------------------------------
+ Foreign Scan on public.p_kv
+   Output: key
+   etcd Endpoint: http://etcd:2379
+   etcd Prefix: /test/push/
+   etcd Scan: range
+   etcd Order: ASC
+(6 rows)
+
+SELECT key FROM p_kv WHERE key >= 'c' AND key < 'f' ORDER BY key;
+ key 
+-----
+ c
+ d
+ e
+(3 rows)
+
+-- prefix LIKE -> prefix Range
+SELECT key FROM p_kv WHERE key LIKE 'a%';
+ key 
+-----
+ a
+(1 row)
+
+-- IN-list -> multi-key fetch
+EXPLAIN (VERBOSE, COSTS OFF) SELECT key, value FROM p_kv WHERE key IN ('b', 'd', 'zzz');
+            QUERY PLAN             
+-----------------------------------
+ Foreign Scan on public.p_kv
+   Output: key, value
+   etcd Endpoint: http://etcd:2379
+   etcd Prefix: /test/push/
+   etcd Scan keys: 3
+   etcd Order: ASC
+(6 rows)
+
+SELECT key, value FROM p_kv WHERE key IN ('b', 'd', 'zzz') ORDER BY key;
+ key | value 
+-----+-------
+ b   | v2
+ d   | v4
+(2 rows)
+
+-- ORDER BY DESC + LIMIT pushed down
+EXPLAIN (VERBOSE, COSTS OFF) SELECT key FROM p_kv ORDER BY key DESC LIMIT 3;
+               QUERY PLAN                
+-----------------------------------------
+ Limit
+   Output: key
+   ->  Foreign Scan on public.p_kv
+         Output: key
+         etcd Endpoint: http://etcd:2379
+         etcd Prefix: /test/push/
+         etcd Scan: range
+         etcd Limit: 3
+         etcd Order: DESC
+(9 rows)
+
+SELECT key FROM p_kv ORDER BY key DESC LIMIT 3;
+ key 
+-----
+ g
+ f
+ e
+(3 rows)
+
+-- filter on value stays a local recheck
+EXPLAIN (VERBOSE, COSTS OFF) SELECT key FROM p_kv WHERE value = 'v2';
+             QUERY PLAN              
+-------------------------------------
+ Foreign Scan on public.p_kv
+   Output: key
+   Filter: (p_kv.value = 'v2'::text)
+   etcd Endpoint: http://etcd:2379
+   etcd Prefix: /test/push/
+   etcd Scan: range
+   etcd Order: ASC
+(7 rows)
+
+SELECT key FROM p_kv WHERE value = 'v2';
+ key 
+-----
+ b
+(1 row)
+
+DELETE FROM p_kv;
+DROP FOREIGN TABLE p_kv;

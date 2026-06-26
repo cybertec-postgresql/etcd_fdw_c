@@ -1,0 +1,83 @@
+-- dml: INSERT / UPDATE / DELETE through the FDW
+CREATE FOREIGN TABLE d_kv (key text COLLATE "C", value text, version bigint)
+  SERVER etcd OPTIONS (prefix '/test/dml/', strip_prefix 'true');
+DELETE FROM d_kv;
+-- INSERT
+INSERT INTO d_kv (key, value) VALUES ('k1', 'v1'), ('k2', 'v2');
+SELECT key, value, version FROM d_kv ORDER BY key;
+ key | value | version 
+-----+-------+---------
+ k1  | v1    |       1
+ k2  | v2    |       1
+(2 rows)
+
+-- UPDATE value
+UPDATE d_kv SET value = 'v1b' WHERE key = 'k1';
+SELECT key, value FROM d_kv WHERE key = 'k1';
+ key | value 
+-----+-------
+ k1  | v1b
+(1 row)
+
+-- UPDATE key (rename: put new + delete old in one txn)
+UPDATE d_kv SET key = 'k3' WHERE key = 'k2';
+SELECT key, value FROM d_kv ORDER BY key;
+ key | value 
+-----+-------
+ k1  | v1b
+ k3  | v2
+(2 rows)
+
+-- DELETE
+DELETE FROM d_kv WHERE key = 'k1';
+SELECT key, value FROM d_kv ORDER BY key;
+ key | value 
+-----+-------
+ k3  | v2
+(1 row)
+
+-- multi-row INSERT ... SELECT
+INSERT INTO d_kv (key, value) SELECT 'm' || g, 'mv' || g FROM generate_series(1, 4) g;
+SELECT count(*) FROM d_kv;
+ count 
+-------
+     5
+(1 row)
+
+-- COPY FROM (exercises BeginForeignInsert)
+COPY d_kv (key, value) FROM stdin;
+SELECT key, value FROM d_kv WHERE key LIKE 'c%' ORDER BY key;
+ key | value 
+-----+-------
+ c1  | cv1
+ c2  | cv2
+(2 rows)
+
+-- batch insert across the 100-op batch boundary (250 rows)
+DELETE FROM d_kv;
+INSERT INTO d_kv (key, value) SELECT lpad(g::text, 4, '0'), 'v' || g
+  FROM generate_series(1, 250) g;
+SELECT count(*) FROM d_kv;
+ count 
+-------
+   250
+(1 row)
+
+SELECT key, value FROM d_kv WHERE key IN ('0001', '0100', '0101', '0250') ORDER BY key;
+ key  | value 
+------+-------
+ 0001 | v1
+ 0100 | v100
+ 0101 | v101
+ 0250 | v250
+(4 rows)
+
+-- TRUNCATE clears the whole prefix
+TRUNCATE d_kv;
+SELECT count(*) FROM d_kv;
+ count 
+-------
+     0
+(1 row)
+
+DROP FOREIGN TABLE d_kv;

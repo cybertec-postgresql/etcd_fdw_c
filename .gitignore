@@ -1,0 +1,23 @@
+# PGXS build artifacts
+*.o
+*.so
+*.bc
+/*.deps/
+src/*.o
+src/*.bc
+third_party/cJSON/*.o
+third_party/cJSON/*.bc
+
+# pg_regress
+/test/results/
+/test/regression.diffs
+/test/regression.out
+/test/tmp_check/
+/test/.gitkeep
+
+# generated TLS material
+/test/certs/
+
+# editor cruft
+*~
+*.swp

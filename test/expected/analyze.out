@@ -1,0 +1,14 @@
+-- analyze: AnalyzeForeignTable populates pg_class.reltuples
+CREATE FOREIGN TABLE a_kv (key text COLLATE "C", value text)
+  SERVER etcd OPTIONS (prefix '/test/analyze/', strip_prefix 'true');
+DELETE FROM a_kv;
+INSERT INTO a_kv (key, value) SELECT 'k' || g, 'v' || g FROM generate_series(1, 20) g;
+ANALYZE a_kv;
+SELECT reltuples::int AS reltuples FROM pg_class WHERE relname = 'a_kv';
+ reltuples 
+-----------
+        20
+(1 row)
+
+DELETE FROM a_kv;
+DROP FOREIGN TABLE a_kv;

@@ -1,0 +1,23 @@
+-- errors: option validation and runtime error paths
+\set VERBOSITY terse
+-- unknown option rejected by the validator
+CREATE SERVER bad1 FOREIGN DATA WRAPPER etcd_fdw OPTIONS (bogus 'x');
+ERROR:  invalid option "bogus"
+-- non-positive timeout rejected
+CREATE SERVER bad2 FOREIGN DATA WRAPPER etcd_fdw OPTIONS (connect_timeout_ms '0');
+ERROR:  option "connect_timeout_ms" must be a positive integer (milliseconds)
+-- unreachable endpoint surfaces a connection error (no retries: fail fast)
+CREATE SERVER unreach FOREIGN DATA WRAPPER etcd_fdw
+  OPTIONS (endpoints 'http://127.0.0.1:1', connect_timeout_ms '500',
+           request_timeout_ms '500', max_retries '0');
+CREATE FOREIGN TABLE u_kv (key text COLLATE "C") SERVER unreach OPTIONS (prefix '/x/');
+SELECT * FROM u_kv;
+ERROR:  etcd_fdw: no etcd endpoint available after 1 attempt(s)
+DROP FOREIGN TABLE u_kv;
+DROP SERVER unreach;
+-- a table without a "key" column is not updatable
+CREATE FOREIGN TABLE nokey (value text) SERVER etcd OPTIONS (prefix '/test/nokey/');
+INSERT INTO nokey VALUES ('x');
+ERROR:  foreign table "nokey" does not allow inserts
+DROP FOREIGN TABLE nokey;
+\set VERBOSITY default

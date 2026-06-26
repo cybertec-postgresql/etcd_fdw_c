@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  matrix:
+    name: pg${{ matrix.pg }} / etcd ${{ matrix.etcd }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["14", "15", "16", "17", "18"]
+        etcd: ["v3.4.34", "v3.5.16", "v3.6.1"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run regression cell
+        run: bash test/scripts/run-cell.sh "${{ matrix.pg }}" "${{ matrix.etcd }}"
+
+  auth-tls:
+    name: auth + TLS (pg16 / etcd 3.6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run auth + TLS checks
+        run: bash test/scripts/run-auth-tls.sh 16 v3.6.1
+
+  concurrency:
+    name: concurrency (pg16 / etcd 3.6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run concurrency checks
+        run: bash test/scripts/run-concurrency.sh 16 v3.6.1
+
+  ha:
+    name: high availability (pg16 / etcd 3.6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run multi-endpoint failover checks
+        run: bash test/scripts/run-ha.sh 16 v3.6.1
+
+  asan:
+    name: AddressSanitizer (pg16 / etcd 3.6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run suite under ASan
+        run: bash test/scripts/run-asan.sh 16 v3.6.1
+
+  valgrind:
+    name: Valgrind (pg16 / etcd 3.6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run hot paths under Valgrind
+        run: bash test/scripts/run-valgrind.sh 16 v3.6.1
+
+  fault:
+    name: fault injection / 5xx failover (pg16 / etcd 3.6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run 5xx fault-injection checks
+        run: bash test/scripts/run-fault.sh 16 v3.6.1
+
+  jsonfuzz:
+    name: JSON fuzzing under ASan (pg16)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fuzz response parsing
+        run: bash test/scripts/run-jsonfuzz.sh 16 300
+
+  style:
+    name: pgindent style check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for trailing whitespace / space-before-tab in sources
+        run: |
+          # space-before-tab in indentation is a smell; tab-before-space is
+          # normal PostgreSQL alignment, so it is not flagged.
+          ! grep -rnP ' \t' src/ || (echo "space before tab"; exit 1)
+          ! grep -rnP ' +$' src/*.c src/*.h || (echo "trailing whitespace"; exit 1)
